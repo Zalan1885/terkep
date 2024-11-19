@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interaktív Magyarország Térkép</title>
+    <style>
+        #map {
+            position: relative;
+            width: 1400px;
+            height: 1000px;
+            background-color: transparent;
+            overflow: hidden;
+        }
+        .tooltip {
+            position: absolute;
+            background-color: #333;
+            color: #fff;
+            padding: 8px 12px;
+            border-radius: 8px;
+            display: none;
+            z-index: 1000;
+            font-family: Arial, sans-serif;
+            font-size: 14px;
+            box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.2);
+        }
+        .county-svg {
+            filter: drop-shadow(0px 4px 4px rgba(0, 0, 0, 0.1));
+            transition: transform 0.2s ease;
+        }
+        .county-svg:hover {
+            transform: scale(1.03);
+            cursor: pointer;
+        }
+        #searchContainer {
+            margin: 20px 0;
+            text-align: center;
+        }
+        #searchBox {
+            padding: 8px;
+            font-size: 16px;
+            width: 300px;
+        }
+        #filterContainer {
+            margin: 10px;
+        }
+        #filterDropdown, #ownerDropdown {
+            padding: 8px;
+            font-size: 16px;
+        }
+        #legend {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background-color: #f9f9f9;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            padding: 10px;
+            font-family: Arial, sans-serif;
+            font-size: 14px;
+            box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.1);
+        }
+        #legend div {
+            display: flex;
+            align-items: center;
+            margin-bottom: 5px;
+        }
+        #legend div span {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            margin-right: 10px;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+
+<div id="searchContainer">
+    <input type="text" id="searchBox" placeholder="Keresés megyére vagy tulajdonságra..." oninput="searchCounty()">
+    <div id="filterContainer">
+        <label for="filterDropdown">Tulajdonság szűrés:</label>
+        <select id="filterDropdown" onchange="filterByAttribute()">
+            <option value="">Összes</option>
+            <option value="arany">Arany</option>
+            <option value="búza">Búza</option>
+            <option value="kukorica">Kukorica</option>
+            <option value="fa">Fa</option>
+            <option value="szőlő/bor">Szőlő/Bor</option>
+            <option value="cukor">Cukor</option>
+            <option value="szén">Szén</option>
+            <option value="vasérc">Vasérc</option>
+            <option value="kikötő">Kikötő</option>
+        </select>
+        <label for="ownerDropdown">Tulajdonos szűrés:</label>
+        <select id="ownerDropdown" onchange="filterByOwner()">
+            <option value="">Összes</option>
+            <option value="Kolos">Kolos</option>
+            <option value="Zente">Zente</option>
+            <option value="Ákos">Ákos</option>
+            <option value="Boti">Boti</option>
+            <option value="Zalán">Zalán</option>
+            <option value="Geri">Geri</option>
+            <option value="Samu">Samu</option>
+            <option value="Barna">Barna</option>
+        </select>
+    </div>
+</div>
+
+<div id="map"></div>
+<div class="tooltip" id="tooltip"></div>
+
+<div id="legend">
+    <strong>Színmagyarázat:</strong>
+    <div><span style="background-color: #8ed873;"></span> Zente</div>
+    <div><span style="background-color: #a979c8;"></span> Zalán</div>
+    <div><span style="background-color: #cc9900;"></span> Geri</div>
+    <div><span style="background-color: #ff6600;"></span> Samu</div>
+    <div><span style="background-color: #c00000;"></span> Boti</div>
+    <div><span style="background-color: #0000cc;"></span> Kolos</div>
+    <div><span style="background-color: #5e3792;"></span> Ákos</div>
+    <div><span style="background-color: #37a1c0;"></span> Barna</div>
+</div>
+
+<script>
+    // Tulajdonos színek
+    const ownerColors = {
+        'Zente': '#8ed873',
+        'Zalán': '#a979c8',
+        'Geri': '#cc9900',
+        'Samu': '#ff6600',
+        'Boti': '#c00000',
+        'Kolos': '#0000cc',
+        'Ákos': '#5e3792',
+        'Barna': '#37a1c0',
+    };
+
+    const countyPositions = {
+            'Fiume - város': { left: '1.5px', top: '380.5px', info: 'Fiume - város', attributes: ['kikötő'], owner: 'Zente' },
+    'Modrus-Fiume': { left: '1.5px', top: '360.5px', info: 'Modrus-Fiume', attributes: ['élelmiszeripar', 'gépgyártás', 'kikötő'], owner: 'Zente' },
+    'Lika-Krbava': { left: '30.5px', top: '415.5px', info: 'Lika-Krbava', attributes: ['kikötő', 'fa'], owner: 'Zente' },
+    'Zágráb': { left: '60.5px', top: '329.5px', info: 'Zágráb', attributes: ['könnyűipar', 'élelmiszeripar'], owner: 'Zente' },
+    'Varasd': { left: '84.5px', top: '298.5px', info: 'Varasd', attributes: ['szőlő/bor', 'fa', 'szén'], owner: null },
+    'Belovár-Kőrós': { left: '127.5px', top: '317.5px', info: 'Belovár-Kőrós', attributes: ['élelmiszeripar', 'vas-és fémipar', 'szőlő/bor', 'fa', 'kukorica'], owner: null },
+    'Pozsega': { left: '154.5px', top: '366.5px', info: 'Pozsega', attributes: ['fa', 'búza', 'kukorica'], owner: null },
+    'Verőcze': { left: '187.5px', top: '342.5px', info: 'Verőcze', attributes: ['fa', 'búza'], owner: null },
+    'Szerém': { left: '261px', top: '391.5px', info: 'Szerém', attributes: ['szőlő/bor', 'fa', 'búza'], owner: 'Samu' },
+    'Baranya': { left: '222.5px', top: '303.5px', info: 'Baranya', attributes: ['könnyűipar', 'vas-és fémipar', 'egyetem', 'szőlő/bor', 'szén'], owner: null },
+    'Tolna': { left: '239.5px', top: '258.5px', info: 'Tolna', attributes: ['szőlő/bor'], owner: null },
+    'Somogy': { left: '165.5px', top: '255.5px', info: 'Somogy', attributes: ['szőlő/bor', 'cukor', 'állat'], owner: null },
+    'Zala': { left: '122.5px', top: '232.5px', info: 'Zala', attributes: ['szőlő/bor'], owner: 'Geri' },
+    'Vas': { left: '111.5px', top: '194px', info: 'Vas', attributes: ['gépgyártás', 'cukor', 'vasérc'], owner: 'Geri' },
+    'Veszprém': { left: '188.5px', top: '193.5px', info: 'Veszprém', attributes: ['szőlő/bor', 'kukorica'], owner: 'Geri' },
+    'Fejér': { left: '244.5px', top: '194.5px', info: 'Fejér', attributes: ['gépgyártás', 'búza', 'állat'], owner: null },
+    'Komárom': { left: '220.5px', top: '147.5px', info: 'Komárom', attributes: ['szőlő/bor', 'szén'], owner: 'Geri' },
+    'Esztergom': { left: '264.5px', top: '149.5px', info: 'Esztergom', attributes: ['szén'], owner: 'Geri' },
+    'Győr': { left: '197.5px', top: '161.5px', info: 'Győr', attributes: ['gépgyártás'], owner: 'Geri' },
+    'Sopron': { left: '131.5px', top: '152.5px', info: 'Sopron', attributes: ['cukor'], owner: 'Geri' },
+    'Moson': { left: '160px', top: '136.5px', info: 'Moson', attributes: ['gépgyártás', 'búza'], owner: 'Geri' },
+    'Pozsony': { left: '171.5px', top: '89.5px', info: 'Pozsony', attributes: ['könnyűipar', 'egyetem', 'cukor'], owner: 'Geri' },
+    'Nyitra': { left: '180.5px', top: '60.5px', info: 'Nyitra', attributes: ['cukor'], owner: 'Geri' },
+    'Bars': { left: '257.5px', top: '79.5px', info: 'Bars', attributes: ['fa', 'búza'], owner: 'Geri' },
+    'Hont': { left: '283.5px', top: '105.5px', info: 'Hont', attributes: ['élelmiszeripar', 'vas-és fémipar'], owner: null },
+    'Zólyom': { left: '300.96px', top: '64.5px', info: 'Zólyom', attributes: ['könnyűipar', 'arany'], owner: 'Geri' },
+    'Trencsén': { left: '223.5px', top: '9.5px', info: 'Trencsén', attributes: ['állat', 'szén'], owner: 'Geri' },
+    'Árva': { left: '310.5px', top: '1.5px', info: 'Árva', attributes: ['fa', 'szén'], owner: 'Geri' },
+    'Liptó': { left: '310.5px', top: '34.5px', info: 'Liptó', attributes: ['fa'], owner: 'Geri' },
+    'Szepes': { left: '367px', top: '15.5px', info: 'Szepes', attributes: ['arany', 'állat', 'vasérc'], owner: 'Zalán' },
+    'Sáros': { left: '408px', top: '16.5px', info: 'Sáros', attributes: ['fa', 'arany'], owner: 'Zalán' },
+    'Zemplén': { left: '423px', top: '22.5px', info: 'Zemplén', attributes: ['szőlő/bor'], owner: 'Boti' },
+    'Ung': { left: '478.5px', top: '48px', info: 'Ung', attributes: ['fa', 'állat'], owner: null },
+    'Bereg': { left: '500px', top: '64.5px', info: 'Bereg', attributes: ['szőlő/bor', 'búza'], owner: 'Ákos' },
+    'Szatmár': { left: '495.5px', top: '136.5px', info: 'Szatmár', attributes: ['búza', 'kukorica', 'állat'], owner: null },
+    'Szabolcs': { left: '428.5px', top: '112.5px', info: 'Szabolcs', attributes: ['egyetem'], owner: null },
+    'Hajdú': { left: '413.5px', top: '158.5px', info: 'Hajdú', attributes: ['könnyűipar', 'élelmiszeripar', 'gépgyártás', 'állat'], owner: null },
+    'Nógrád': { left: '301.5px', top: '92px', info: 'Nógrád', attributes: ['vas-és fémipar', 'szén', 'vasérc'], owner: null },
+    'Borsod': { left: '368.5px', top: '107.86px', info: 'Borsod', attributes: ['vas-és fémipar', 'szén', 'vasérc'], owner: 'Geri' },
+    'Heves': { left: '342.5px', top: '139.5px', info: 'Heves', attributes: ['szőlő/bor', 'szén'], owner: null },
+    'Jász-Nagykun-Szolnok': { left: '344.5px', top: '185.5px', info: 'Jász-Nagykun-Szolnok', attributes: ['gépgyártás', 'búza', 'kukorica'], owner: null },
+    'Pest-Pilis-Solt-Kiskun': { left: '282.5px', top: '167px', info: 'Pest-Pilis-Solt-Kiskun', attributes: ['gépgyártás', 'egyetem', 'cukor', 'búza', 'kukorica'], owner: 'Barna' },
+    'Csongrád': { left: '343.5px', top: '266px', info: 'Csongrád', attributes: ['könnyűipar', 'búza', 'állat'], owner: 'Samu'  },
+    'Csanád': { left: '387.5px', top: '287.5px', info: 'Csanád', attributes: ['cukor', 'búza', 'kukorica', 'állat'], owner: 'Samu'  },
+    'Békés': { left: '387px', top: '229.5px', info: 'Békés', attributes: ['búza', 'kukorica', 'állat'], owner: null },
+    'Bács-Bodrog': { left: '292.5px', top: '306.5px', info: 'Bács-Bodrog', attributes: ['szőlő/bor', 'cukor', 'búza', 'kukorica', 'állat'], owner: 'Samu'  },
+    'Torontál': { left: '368.5px', top: '318.5px', info: 'Torontál', attributes: ['búza', 'kukorica'], owner: 'Samu' },
+    'Temes': { left: '417.5px', top: '325.5px', info: 'Temes', attributes: ['gépgyártás', 'szén'], owner: 'Samu'  },
+    'Hunyad': { left: '516.5px', top: '305px', info: 'Hunyad', attributes: ['vas-és fémipar', 'arany', 'állat', 'vasérc'], owner: null },
+    'Arad': { left: '418.5px', top: '273px', info: 'Arad', attributes: ['gépgyártás', 'szőlő/bor', 'búza', 'állat'], owner: 'Samu'  },
+    'Bihar': { left: '430.92px', top: '191.5px', info: 'Bihar', attributes: ['élelmiszeripar', 'cukor', 'állat'], owner: null },
+    'Szilágy': { left: '508.5px', top: '185px', info: 'Szilágy', attributes: ['fa', 'búza', 'kukorica'], owner: null },
+    'Szolnok-Doboka': { left: '571.5px', top: '179.5px', info: 'Szolnok-Doboka', attributes: ['vas-és fémipar', 'fa', 'búza'], owner: null },
+    'Máramaros': { left: '559.5px', top: '78.5px', info: 'Máramaros', attributes: ['arany', 'állat'], owner: 'Ákos' },
+    'Beszterce-Naszód': { left: '626px', top: '181px', info: 'Beszterce-Naszód', attributes: ['fa'], owner: 'Boti' },
+    'Kolozs': { left: '531px', top: '233px', info: 'Kolozs', attributes: ['könnyűipar', 'egyetem'], owner: 'Kolos' },
+    'Torda-Aranyos': { left: '533.5px', top: '268px', info: 'Torda-Aranyos', attributes: ['arany', 'állat'], owner: 'Kolos' },
+    'Alsó-Fehér': { left: '550.5px', top: '291px', info: 'Alsó-Fehér', attributes: ['szőlő/bor', 'arany', 'állat'], owner: null },
+    'Szeben': { left: '585.5px', top: '332px', info: 'Szeben', attributes: ['vas-és fémipar', 'szén'], owner: null },
+    'Fogaras': { left: '647px', top: '331.5px', info: 'Fogaras', attributes: ['állat'], owner: null },
+    'Kis-Küküllő': { left: '610.5px', top: '286.5px', info: 'Kis-Küküllő', attributes: ['szőlő/bor', 'búza'], owner: null },
+    'Udvarhely': { left: '665.5px', top: '269.5px', info: 'Udvarhely', attributes: ['búza', 'kukorica'], owner: 'Kolos' },
+    'Háromszék': { left: '715px', top: '300.5px', info: 'Háromszék', attributes: ['fa'], owner: 'Kolos' },
+    'Csík': { left: '694px', top: '220px', info: 'Csík', attributes: ['fa'], owner: 'Kolos' },
+    'Maros-Torda': { left: '628.5px', top: '225.5px', info: 'Maros-Torda', attributes: ['könnyűipar', 'gépgyártás', 'állat'], owner: 'Kolos' },
+    'Budapest': { left: '299.5px', top: '192px', info: 'Budapest', attributes: ['gépgyártás', 'egyetem', 'cukor', 'búza', 'kukorica'], owner: 'Barna' },
+    'Ugocsa': { left: '537px', top: '121.5px', info: 'Ugocsa', attributes: [], owner: 'Boti' },
+    'Krassó-Szőrény': { left: '453.5px', top: '331.5px', info: 'Krassó-Szőrény', attributes: ['vas-és fémipar', 'szén', 'vasérc'], owner: 'Samu' },
+    'Gömör-és-Kis-Hont': { left: '350.5px', top: '65px', info: 'Gömör-és-Kis-Hont', attributes: ['vasérc'], owner: 'Geri' },
+    'Abaúj-Torna': { left: '395px', top: '75.5px', info: 'Abaúj-Torna', attributes: ['arany', 'vas-és fémipar'], owner: 'Zalán' },
+    'Túrócz': { left: '283.5px', top: '41.5px', info: 'Túrócz', attributes: ['fa'], owner: 'Geri' },
+    'Nagy-Küküllő': { left: '620.5px', top: '305px', info: ' Nagy-Küküllő ', attributes: ['fa', 'búza'], owner: null },
+    'Brassó': { left: '703px', top: '322px', info: 'Brassó', attributes: ['könnyűipar'], owner: null },    };
+
+    const tooltip = document.getElementById('tooltip');
+
+    Object.keys(countyPositions).forEach(county => {
+        fetch(`svg/${county}.svg`)
+            .then(response => response.text())
+            .then(svgData => {
+                const parser = new DOMParser();
+                const svgDocument = parser.parseFromString(svgData, "image/svg+xml");
+                const svgElement = svgDocument.querySelector("svg");
+
+                // Színezés tulajdonos alapján
+                const owner = countyPositions[county].owner;
+                const color = owner ? ownerColors[owner] : '#d3d3d3'; // Szürke, ha nincs tulajdonos
+                svgElement.setAttribute("fill", color);
+
+                const container = document.createElement('div');
+                container.style.position = "absolute";
+                container.style.left = countyPositions[county].left;
+                container.style.top = countyPositions[county].top;
+                container.classList.add('county-svg');
+                container.setAttribute('data-county', county);
+                container.appendChild(svgElement);
+
+                container.addEventListener('mouseenter', () => {
+                    tooltip.style.display = 'block';
+                    const attributes = countyPositions[county].attributes.join(', ');
+                    tooltip.textContent = `${county}: ${attributes} (Tulajdonos: ${owner || 'Nincs'})`;
+                });
+
+                container.addEventListener('mousemove', (e) => {
+                    tooltip.style.left = e.pageX + 10 + 'px';
+                    tooltip.style.top = e.pageY + 10 + 'px';
+                });
+
+                container.addEventListener('mouseleave', () => {
+                    tooltip.style.display = 'none';
+                });
+
+                document.getElementById('map').appendChild(container);
+            })
+            .catch(error => console.error(`Hiba történt a ${county}.svg betöltésekor:`, error));
+    });
+
+    function searchCounty() {
+        const searchQuery = document.getElementById('searchBox').value.toLowerCase();
+
+        Object.keys(countyPositions).forEach(county => {
+            const container = document.querySelector(`.county-svg[data-county="${county}"]`);
+            const attributes = countyPositions[county].attributes || [];
+            const owner = countyPositions[county].owner || '';
+
+            if (container) {
+                if (
+                    county.toLowerCase().includes(searchQuery) ||
+                    attributes.some(attr => attr.toLowerCase().includes(searchQuery)) ||
+                    owner.toLowerCase().includes(searchQuery)
+                ) {
+                    container.style.display = 'block';
+                } else {
+                    container.style.display = 'none';
+                }
+            }
+        });
+    }
+
+    function filterByAttribute() {
+        const selectedAttribute = document.getElementById('filterDropdown').value.toLowerCase();
+
+        Object.keys(countyPositions).forEach(county => {
+            const container = document.querySelector(`.county-svg[data-county="${county}"]`);
+            const attributes = countyPositions[county].attributes || [];
+
+            if (container) {
+                if (!selectedAttribute || attributes.some(attr => attr.toLowerCase() === selectedAttribute)) {
+                    container.style.display = 'block';
+                } else {
+                    container.style.display = 'none';
+                }
+            }
+        });
+    }
+
+    function filterByOwner() {
+        const selectedOwner = document.getElementById('ownerDropdown').value;
+
+        Object.keys(countyPositions).forEach(county => {
+            const container = document.querySelector(`.county-svg[data-county="${county}"]`);
+            const owner = countyPositions[county].owner || '';
+
+            if (container) {
+                if (!selectedOwner || owner === selectedOwner) {
+                    container.style.display = 'block';
+                } else {
+                    container.style.display = 'none';
+                }
+            }
+        });
+    }
+</script>
+
+</body>
+</html>
